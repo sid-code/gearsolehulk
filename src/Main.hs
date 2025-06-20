@@ -57,7 +57,8 @@ data World = World
     deriving stock (Show)
 
 -- | Existential wrapper for entities with different brain types
-data SomeEntity = forall b.
+data SomeEntity
+    = forall b.
       (Brain b) =>
     SomeEntity
     { entityId :: EntityId
