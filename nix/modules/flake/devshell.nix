@@ -1,22 +1,5 @@
 { config, inputs, ... }:
 {
-  imports = [
-    inputs.agenix-shell.flakeModules.default
-  ];
-
-  agenix-shell = {
-    secrets = {
-      foo.file = ./secrets/openrouter.key.age;
-    };
-  };
-
-  defaultShellPackages =
-    pkgs: with pkgs; [
-      just
-      nixd
-      ghciwatch
-    ];
-
   perSystem =
     let
       config' = config;
@@ -36,12 +19,15 @@
         inputsFrom = [
           config.haskellProjects.default.outputs.devShell # See ./nix/modules/haskell.nix
           config.pre-commit.devShell # See ./nix/modules/formatter.nix
+          config.devShells.aider
+          config.devShells.agenix
         ];
-        packages = config'.defaultShellPackages pkgs;
 
-        shellHook = ''
-          source ${lib.getExe config.agenix-shell.installationScript}
-        '';
+        packages = with pkgs; [
+          just
+          nixd
+          ghciwatch
+        ];
       };
     };
 }
