@@ -59,7 +59,7 @@ data World = World
 -- | Existential wrapper for entities with different brain types
 data SomeEntity
     = forall b.
-      (Brain b) =>
+      (Brain b, Action b ~ WorldAction) =>
     SomeEntity
     { entityId :: EntityId
     , entityBrain :: b
