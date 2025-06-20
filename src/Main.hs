@@ -61,7 +61,7 @@ data GraphWorld = MkGraphWorld
 -- | Existential wrapper for entities with different brain types
 data SomeEntity
     = forall b.
-      (Brain b) =>
+      (Brain b, Action b ~ WorldAction, World b ~ GraphWorld) =>
     SomeEntity
     { entityId :: EntityId
     , entityBrain :: b
@@ -86,7 +86,7 @@ type RockThought = ()
 
 type RockBrain = ()
 
-type RockAction = ()
+type RockAction = WorldAction
 
 type RockBody = ()
 
@@ -97,7 +97,7 @@ instance Brain RockBrain where
     type World RockBrain = GraphWorld
 
     think _ _ _ = ((), ())
-    produce _ _ = ()
+    produce _ _ = Rest
 
 -- | Worm implementation (more complex behavior)
 data WormThought
@@ -186,13 +186,9 @@ addEntity entity roomId = do
             }
     return eid
 
-class (Brain b) => ExecutableAction b where
-    executeAction :: EntityId -> Action b -> State (World b) ()
-
 -- | Execute an action for an entity
-instance ExecutableAction WormBrain where
-    executeAction :: EntityId -> WorldAction -> State GraphWorld ()
-    executeAction entityId action = do
+executeAction :: EntityId -> WorldAction -> State GraphWorld ()
+executeAction entityId action = do
         world <- get
         case Map.lookup entityId (worldEntityLocations world) of
             Nothing -> pure () -- Entity doesn't exist
@@ -279,24 +275,17 @@ simulationStep = do
     cleanupMessages
 
 -- | Process a single entity's turn
-processEntity :: (Brain b, World b ~ GraphWorld) => EntityId -> State (World b) ()
+processEntity :: EntityId -> State GraphWorld ()
 processEntity entityId = do
     world <- get
     case Map.lookup entityId (worldEntities world) of
         Nothing -> pure ()
-        Just
-            ( SomeEntity
-                    eid
-                    (brain :: b)
-                    (body :: Body b)
-                    name
-                ) -> do
-                let (newBrain, thought) = think brain body (world :: World b)
-                    action = produce newBrain thought
-                    newEntity = SomeEntity eid newBrain body name
-                    newWorld = world{worldEntities = Map.insert entityId newEntity (worldEntities world)}
-                    (_, result) = runState (executeAction entityId action :: State GraphWorld ()) world
-                put result
+        Just (SomeEntity eid brain body name) -> do
+            let (newBrain, thought) = think brain body world
+                action = produce newBrain thought
+                newEntity = SomeEntity eid newBrain body name
+            put $ world{worldEntities = Map.insert entityId newEntity (worldEntities world)}
+            executeAction entityId action
 
 -- | Clean up old messages
 cleanupMessages :: State GraphWorld ()
