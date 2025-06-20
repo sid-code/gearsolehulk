@@ -1,6 +1,6 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilyDependencies #-}
 
 module Main where
 
@@ -21,11 +21,13 @@ type RoomId = Int
 
 -- | Basic Brain typeclass
 class Brain b where
-    type Thought b
-    type Body b
-    type Action b
+    type Thought b = r | r -> b
+    type Body b = r | r -> b
+    type Action b = r | r -> b
 
-    think :: b -> Body b -> World -> (b, Thought b)
+    type World b
+
+    think :: b -> Body b -> World b -> (b, Thought b)
     produce :: b -> Thought b -> Action b
 
 -- | Messages that entities can send to each other
@@ -47,7 +49,7 @@ data Room = Room
     deriving stock (Show)
 
 -- | World state containing the graph and entities
-data World = World
+data GraphWorld = MkGraphWorld
     { worldRooms :: Map RoomId Room
     , worldEntities :: Map EntityId SomeEntity
     , worldEntityLocations :: Map EntityId RoomId
@@ -59,7 +61,7 @@ data World = World
 -- | Existential wrapper for entities with different brain types
 data SomeEntity
     = forall b.
-      (Brain b, Action b ~ WorldAction) =>
+      (Brain b) =>
     SomeEntity
     { entityId :: EntityId
     , entityBrain :: b
@@ -84,7 +86,7 @@ type RockThought = ()
 
 type RockBrain = ()
 
-type RockAction = WorldAction
+type RockAction = ()
 
 type RockBody = ()
 
@@ -92,9 +94,10 @@ instance Brain RockBrain where
     type Thought RockBrain = RockThought
     type Action RockBrain = RockAction
     type Body RockBrain = RockBody
+    type World RockBrain = GraphWorld
 
     think _ _ _ = ((), ())
-    produce _ _ = Rest
+    produce _ _ = ()
 
 -- | Worm implementation (more complex behavior)
 data WormThought
@@ -124,6 +127,7 @@ instance Brain WormBrain where
     type Thought WormBrain = WormThought
     type Action WormBrain = WorldAction
     type Body WormBrain = WormBody
+    type World WormBrain = GraphWorld
 
     think brain body world =
         let newBrain = brain{wormAge = wormAge brain + 1}
@@ -133,7 +137,7 @@ instance Brain WormBrain where
     produce = wormActionFromThought
 
 -- | Determine what a worm should think based on its state
-determineWormThought :: WormBrain -> WormBody -> World -> WormThought
+determineWormThought :: WormBrain -> WormBody -> GraphWorld -> WormThought
 determineWormThought brain body world
     | wormGlucose body < 20 = Hungry (30 - wormGlucose body)
     | wormEnergy brain > 80 && wormAge brain > 50 = Reproducing
@@ -151,9 +155,9 @@ wormActionFromThought brain thought = case thought of
     Resting -> Rest
 
 -- | Create initial world
-createWorld :: StdGen -> World
+createWorld :: StdGen -> GraphWorld
 createWorld gen =
-    World
+    MkGraphWorld
         { worldRooms =
             Map.fromList
                 [ (1, Room 1 "Surface" "Rich topsoil with organic matter" (Set.fromList [2, 3]) 50 [])
@@ -169,7 +173,7 @@ createWorld gen =
         }
 
 -- | Add an entity to the world
-addEntity :: SomeEntity -> RoomId -> State World EntityId
+addEntity :: SomeEntity -> RoomId -> State GraphWorld EntityId
 addEntity entity roomId = do
     world <- get
     let eid = worldNextEntityId world
@@ -182,21 +186,25 @@ addEntity entity roomId = do
             }
     return eid
 
+class (Brain b) => ExecutableAction b where
+    executeAction :: EntityId -> Action b -> State (World b) ()
+
 -- | Execute an action for an entity
-executeAction :: EntityId -> WorldAction -> State World ()
-executeAction entityId action = do
-    world <- get
-    case Map.lookup entityId (worldEntityLocations world) of
-        Nothing -> pure () -- Entity doesn't exist
-        Just currentRoom -> case action of
-            Move targetRoom -> moveEntity entityId currentRoom targetRoom
-            Consume amount -> consumeNutrients entityId currentRoom amount
-            SendMessage msg -> sendMessageToRoom currentRoom msg
-            Rest -> pure () -- Nothing to do
-            Reproduce -> attemptReproduction entityId currentRoom
+instance ExecutableAction WormBrain where
+    executeAction :: EntityId -> WorldAction -> State GraphWorld ()
+    executeAction entityId action = do
+        world <- get
+        case Map.lookup entityId (worldEntityLocations world) of
+            Nothing -> pure () -- Entity doesn't exist
+            Just currentRoom -> case action of
+                Move targetRoom -> moveEntity entityId currentRoom targetRoom
+                Consume amount -> consumeNutrients entityId currentRoom amount
+                SendMessage msg -> sendMessageToRoom currentRoom msg
+                Rest -> pure () -- Nothing to do
+                Reproduce -> attemptReproduction entityId currentRoom
 
 -- | Move entity between rooms
-moveEntity :: EntityId -> RoomId -> RoomId -> State World ()
+moveEntity :: EntityId -> RoomId -> RoomId -> State GraphWorld ()
 moveEntity entityId currentRoom targetRoom = do
     world <- get
     case Map.lookup currentRoom (worldRooms world) of
@@ -223,7 +231,7 @@ moveEntity entityId currentRoom targetRoom = do
                 else return () -- Invalid move
 
 -- | Consume nutrients from current room
-consumeNutrients :: EntityId -> RoomId -> Int -> State World ()
+consumeNutrients :: EntityId -> RoomId -> Int -> State GraphWorld ()
 consumeNutrients entityId roomId amount = do
     world <- get
     case Map.lookup roomId (worldRooms world) of
@@ -236,7 +244,7 @@ consumeNutrients entityId roomId amount = do
             updateEntityNutrition entityId actualAmount
 
 -- | Update entity nutrition (simplified)
-updateEntityNutrition :: EntityId -> Int -> State World ()
+updateEntityNutrition :: EntityId -> Int -> State GraphWorld ()
 updateEntityNutrition entityId nutrition = do
     world <- get
     case Map.lookup entityId (worldEntities world) of
@@ -246,7 +254,7 @@ updateEntityNutrition entityId nutrition = do
             return ()
 
 -- | Send message to a room
-sendMessageToRoom :: RoomId -> Message -> State World ()
+sendMessageToRoom :: RoomId -> Message -> State GraphWorld ()
 sendMessageToRoom roomId message = do
     world <- get
     case Map.lookup roomId (worldRooms world) of
@@ -256,14 +264,14 @@ sendMessageToRoom roomId message = do
             put $ world{worldRooms = Map.insert roomId newRoom (worldRooms world)}
 
 -- | Attempt reproduction
-attemptReproduction :: EntityId -> RoomId -> State World ()
+attemptReproduction :: EntityId -> RoomId -> State GraphWorld ()
 attemptReproduction entityId roomId = do
     world <- get
     -- Simplified reproduction - just add a message
     sendMessageToRoom roomId (Chemical "reproduction-attempt")
 
 -- | Process one simulation step for all entities
-simulationStep :: State World ()
+simulationStep :: State GraphWorld ()
 simulationStep = do
     world <- get
     let entityIds = Map.keys (worldEntities world)
@@ -271,20 +279,27 @@ simulationStep = do
     cleanupMessages
 
 -- | Process a single entity's turn
-processEntity :: EntityId -> State World ()
+processEntity :: (Brain b, World b ~ GraphWorld) => EntityId -> State (World b) ()
 processEntity entityId = do
     world <- get
     case Map.lookup entityId (worldEntities world) of
         Nothing -> pure ()
-        Just (SomeEntity eid brain body name) -> do
-            let (newBrain, thought) = think brain body world
-                action = produce newBrain thought
-                newEntity = SomeEntity eid newBrain body name
-            put $ world{worldEntities = Map.insert entityId newEntity (worldEntities world)}
-            executeAction entityId action
+        Just
+            ( SomeEntity
+                    eid
+                    (brain :: b)
+                    (body :: Body b)
+                    name
+                ) -> do
+                let (newBrain, thought) = think brain body (world :: World b)
+                    action = produce newBrain thought
+                    newEntity = SomeEntity eid newBrain body name
+                    newWorld = world{worldEntities = Map.insert entityId newEntity (worldEntities world)}
+                    (_, result) = runState (executeAction entityId action :: State GraphWorld ()) world
+                put result
 
 -- | Clean up old messages
-cleanupMessages :: State World ()
+cleanupMessages :: State GraphWorld ()
 cleanupMessages = do
     world <- get
     let cleanRoom room = room{roomMessages = take 5 (roomMessages room)} -- Keep only 5 recent messages
@@ -292,7 +307,7 @@ cleanupMessages = do
     put $ world{worldRooms = cleanedRooms}
 
 -- | Print world state
-printWorldState :: World -> IO ()
+printWorldState :: GraphWorld -> IO ()
 printWorldState world = do
     putStrLn "\n=== World State ==="
     putStrLn $ "Entities: " ++ show (Map.size (worldEntities world))
@@ -304,7 +319,7 @@ printEntity :: SomeEntity -> IO ()
 printEntity (SomeEntity eid _ _ name) =
     putStrLn $ "  " ++ name ++ " (ID: " ++ show eid ++ ")"
 
-printRoom :: World -> Room -> IO ()
+printRoom :: GraphWorld -> Room -> IO ()
 printRoom world room = do
     let entitiesInRoom = Map.keys $ Map.filter (== roomId room) (worldEntityLocations world)
         entityCount = length entitiesInRoom
@@ -319,11 +334,13 @@ printRoom world room = do
             ++ show (length (roomMessages room))
 
 -- | Main simulation loop
-runSimulation :: Int -> StateT World IO ()
+runSimulation :: Int -> StateT GraphWorld IO ()
 runSimulation 0 = pure ()
 runSimulation n = do
-    simulationStep
     world <- get
+    (_, world') <- runStateT (StateT $ pure . runState simulationStep) world
+    put world'
+
     liftIO $ printWorldState world
     liftIO $ putStrLn $ "=== Step " ++ show (101 - n) ++ " completed ===\n"
     runSimulation (n - 1)
