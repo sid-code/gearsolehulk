@@ -1,12 +1,11 @@
 cabal-version:      2.4
-name:               haskell-template
+name:               thinksim
 version:            0.1.0.0
 license:            MIT
-copyright:          2022 Sridhar Ratnakumar
-maintainer:         srid@srid.ca
-author:             Sridhar Ratnakumar
-category:           Web
-homepage:           https://srid.ca/haskell-template
+copyright:          
+maintainer:         
+author:             
+homepage:
 
 -- TODO: Before hackage release.
 -- A short (one-line) description of the package.
@@ -41,17 +40,25 @@ common shared
     ViewPatterns
 
   build-depends:
+    , ansi-terminal
     , aeson
+    , array
     , async
     , base          >=4   && <5
+    , bytestring
+    , colour
     , containers
     , data-default
     , directory
+    , ecstasy
     , filepath
     , mtl
+    , optics
     , random
-    , shower
+    , stm
+    , text
     , time
+    , transformers
     , with-utf8
 
   hs-source-dirs:     src
