@@ -1,13 +1,14 @@
-{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE OverloadedLabels #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main (main) where
 
+import Control.Monad.Loops (whileM_)
 import Control.Monad.Reader (MonadIO (liftIO), MonadReader (ask), ReaderT (runReaderT))
-import Data.Array
-import Data.ByteString (ByteString)
+import Data.Array (Array, array, listArray, (!), (//))
 import Data.ByteString.Builder (Builder, charUtf8, hPutBuilder, stringUtf8)
-import Data.Colour (Colour)
-import Data.Colour.RGBSpace (RGB (RGB))
+import Data.Colour (Colour, ColourOps (darken))
 import Data.Colour.SRGB (sRGB24)
 import Data.Ecstasy (
     Component,
@@ -30,13 +31,22 @@ import Data.Ecstasy (
     setEntity,
     unchanged,
  )
-import Data.Foldable (for_)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
-import Data.Map.Strict qualified as SM
+import Data.IntMap qualified as IM
+import Data.Map qualified as M
 import Data.Set (Set, delete, insert, member)
 import Data.Text (Text)
-import System.Console.ANSI (Color (Green, Magenta, White), ColorIntensity (Vivid), ConsoleIntensity (NormalIntensity), ConsoleLayer (Foreground), SGR (SetColor, SetRGBColor), setSGRCode)
-import System.IO (stdout)
+import Optics (Lens, lens, set, view)
+import System.Console.ANSI (ConsoleLayer (Foreground), SGR (SetRGBColor), setSGRCode)
+import System.IO (BufferMode (NoBuffering), hReady, hSetBuffering, hSetEcho, stdin, stdout)
+
+getKey :: IO [Char]
+getKey = reverse <$> getKey' ""
+  where
+    getKey' chars = do
+        char <- getChar
+        more <- hReady stdin
+        (if more then getKey' else return) (char : chars)
 
 data Position = MkPosition
     { x :: Int
@@ -52,11 +62,39 @@ data EntWorld f = Entity
     , zLevel :: Component f 'Virtual Int
     , description :: Field f Text
     , isPlayer :: Flag f
+    , isActor :: Flag f
+    , nextAction :: Field f Action
+    , isContainer :: Flag f
+    , isItem :: Flag f
+    , itemData :: Field f Item
+    , heldBy :: Field f Ent
     }
     deriving stock (Generic)
 
+data Action = Wait | Move Direction | Use Ent
+    deriving stock (Show, Eq)
+
+data Direction = N | NE | E | SE | S | SW | W | NW
+    deriving stock (Show, Eq, Ord, Bounded, Enum)
+
+class IsItem i where
+    useItem :: Ent -> i -> Game ()
+
+data Item = forall i. (IsItem i) => MkItem i
+
+data Weapon = MkWeapon {}
+    deriving stock (Show, Eq)
+
+instance IsItem Weapon where
+    useItem :: Ent -> Weapon -> Game ()
+    useItem ent i = do
+        pure ()
+
 data Tile = Dirt | Stone | Grass | Wall
     deriving stock (Show)
+
+-- | The light level. 0 = no light, 1 = maximal light.
+type LightLevel = Float
 
 data Map d = MkMap
     { width :: Int
@@ -74,15 +112,16 @@ instance Functor Map where
       where
         t = tiles m
 
-class Get c m where
-    type GetVal m
-    access :: m -> c -> GetVal m
+posLens :: (Int, Int) -> Lens (Map d) (Map d) d d
+posLens p@(x, y) = lens (`mapAccess` p) $ \m s -> mapUpdate m p s
 
-instance Get (Int, Int) (Map d) where
-    type GetVal (Map d) = d
-    access :: Map d -> (Int, Int) -> d
-    access MkMap{width, tiles} (x, y) =
-        tiles ! (y * width + x)
+mapAccess :: Map d -> (Int, Int) -> d
+mapAccess MkMap{width, tiles} (x, y) =
+    tiles ! (y * width + x)
+
+mapUpdate :: Map d -> (Int, Int) -> d -> Map d
+mapUpdate m@MkMap{width, tiles} (x, y) new =
+    m{tiles = tiles // [(y * width + x, new)]}
 
 class Topology c m where
     neighbors :: m -> c -> [c]
@@ -103,37 +142,38 @@ instance Topology (Int, Int) (Map d) where
                 ++ [(-1, 1) | xp && yl]
                 ++ [(1, -1) | yp && xl]
 
-type Underlying = Control.Monad.Reader.ReaderT (IORef LocalState) IO
+type Underlying = ReaderT (IORef LocalState) IO
 
 data LocalState = MkLocalState
-    { lsMaps :: !(Array Int (Map Tile))
-    , lsEntityPositions :: SM.Map Ent Position
-    , lsZLevelEntities :: SM.Map Int (Set Ent)
-    , lsCamera :: Position
-    , lsTime :: Int
+    { quit :: Bool
+    , maps :: !(Array Int (Map Tile))
+    , lsEntityPositions :: M.Map Ent Position
+    , lsZLevelEntities :: IM.IntMap (Set Ent)
+    , lsCamera :: !Position
+    , lsTime :: !Int
     }
-    deriving stock (Show)
+    deriving stock (Show, Generic)
 
 get ::
-    (Control.Monad.Reader.MonadIO m, Control.Monad.Reader.MonadReader (IORef LocalState) m) =>
+    (MonadIO m, MonadReader (IORef LocalState) m) =>
     m LocalState
 get = gets id
 
 gets ::
-    (Control.Monad.Reader.MonadIO m, Control.Monad.Reader.MonadReader (IORef LocalState) m) =>
+    (MonadIO m, MonadReader (IORef LocalState) m) =>
     (LocalState -> a) ->
     m a
 gets f = do
-    ref <- Control.Monad.Reader.ask
-    fmap f . Control.Monad.Reader.liftIO $ readIORef ref
+    ref <- ask
+    fmap f . liftIO $ readIORef ref
 
 modify ::
-    (Control.Monad.Reader.MonadIO m, Control.Monad.Reader.MonadReader (IORef LocalState) m) =>
+    (MonadIO m, MonadReader (IORef LocalState) m) =>
     (LocalState -> LocalState) ->
     m ()
 modify f = do
-    ref <- Control.Monad.Reader.ask
-    Control.Monad.Reader.liftIO $ modifyIORef ref f
+    ref <- ask
+    liftIO $ modifyIORef ref f
 
 type Game = SystemT EntWorld Underlying
 
@@ -141,23 +181,21 @@ type Entity = EntWorld 'FieldOf
 
 type Query = QueryT EntWorld Underlying
 
-data RawMoveResult = RawMoveSuccess | RawMoveInvalid
-move :: Ent -> Position -> Game RawMoveResult
+move :: Ent -> Position -> Game ()
 move ent p@(MkPosition{}) = do
     localState <- get
     setEntity ent unchanged{pos = Set p}
-    pure RawMoveSuccess
 
 tick :: Game ()
 tick = emap allEnts $ do
     position <- query pos
-    Control.Monad.Reader.liftIO $ print position
+    liftIO $ print position
     pure unchanged
 
 vgetPos :: Ent -> Underlying (Maybe Position)
 vgetPos ent = do
     poses <- gets lsEntityPositions
-    pure $ SM.lookup ent poses
+    pure $ M.lookup ent poses
 
 vsetPos :: Ent -> Update Position -> Underlying ()
 vsetPos ent upd =
@@ -166,13 +204,13 @@ vsetPos ent upd =
             { lsEntityPositions = doUpdate upd lsEntityPositions
             }
   where
-    doUpdate (Set newpos) = SM.insert ent newpos . SM.delete ent
-    doUpdate Unset = SM.delete ent
+    doUpdate (Set newpos) = M.insert ent newpos . M.delete ent
+    doUpdate Unset = M.delete ent
     doUpdate Keep = id
 
-findKeyWith :: (k -> v -> Bool) -> SM.Map k v -> Maybe k
+findKeyWith :: (k -> v -> Bool) -> M.Map k v -> Maybe k
 findKeyWith cond =
-    SM.foldrWithKey
+    M.foldrWithKey
         ( \k v ->
             \case
                 Just x -> Just x
@@ -180,10 +218,18 @@ findKeyWith cond =
         )
         Nothing
 
+findBy :: (Int -> t -> Bool) -> IM.IntMap t -> Maybe Int
+findBy cond intmap = go (IM.keys intmap)
+  where
+    go [] = Nothing
+    go (k : ks) =
+        if cond k (intmap IM.! k)
+            then Just k
+            else go ks
 vgetZlevel :: Ent -> Underlying (Maybe Int)
 vgetZlevel ent = do
     zLevelEnts <- gets lsZLevelEntities
-    pure $ findKeyWith (const $ member ent) zLevelEnts
+    pure $ findBy (const $ member ent) zLevelEnts
 
 vsetZlevel :: Ent -> Update Int -> Underlying ()
 vsetZlevel ent upd = do
@@ -191,15 +237,15 @@ vsetZlevel ent upd = do
     modify $ \ls@MkLocalState{lsZLevelEntities} -> do
         ls{lsZLevelEntities = doUpdate currentz upd lsZLevelEntities}
   where
-    doUpdate curz (Set newz) = SM.update (Just . insert ent) newz . doUpdate curz Unset
-    doUpdate curz Unset = maybe id (SM.update (Just . delete ent)) curz
+    doUpdate curz (Set newz) = IM.update (Just . insert ent) newz . doUpdate curz Unset
+    doUpdate curz Unset = maybe id (IM.update (Just . delete ent)) curz
     doUpdate _ Keep = id
 
 tileColor :: Tile -> Colour Float
-tileColor Grass = sRGB24 0 0 0
-tileColor Stone = sRGB24 0 0 0
-tileColor Dirt = sRGB24 0 0 0
-tileColor Wall = sRGB24 0 0 0
+tileColor Grass = sRGB24 40 160 20
+tileColor Stone = sRGB24 10 10 10
+tileColor Dirt = sRGB24 80 40 40
+tileColor Wall = sRGB24 255 255 255
 
 tileSymbol :: Tile -> Char
 tileSymbol Grass = ','
@@ -207,21 +253,44 @@ tileSymbol Stone = '.'
 tileSymbol Dirt = ','
 tileSymbol Wall = '#'
 
-drawTile :: Tile -> Builder
-drawTile t = stringUtf8 (setSGRCode [SetRGBColor Foreground (tileColor t)]) <> charUtf8 (tileSymbol t)
+drawTile :: Tile -> LightLevel -> Builder
+drawTile t light = stringUtf8 (setSGRCode [SetRGBColor Foreground (darken (1 - light) (tileColor t))]) <> charUtf8 (tileSymbol t)
 
 drawMap :: Map Tile -> Builder
 drawMap mp = mconcat $ map buildRow [0 .. height mp - 1]
   where
     buildRow y =
-        mconcat [drawTile (access mp (x, y)) | x <- [0 .. width mp - 1]]
+        mconcat [drawTile (view (posLens (x, y)) mp) 1 | x <- [0 .. width mp - 1]]
             <> stringUtf8 "\n"
+
+setupTerminal :: IO ()
+setupTerminal = do
+    hSetBuffering stdin NoBuffering
+    hSetEcho stdin False
+
+teardownTerminal :: IO ()
+teardownTerminal = pure () -- TODO
 
 renderTerminal :: Game ()
 renderTerminal = do
-    MkLocalState{lsMaps} <- get
+    ls <- get
 
-    liftIO $ hPutBuilder stdout $ drawMap (lsMaps ! 0)
+    liftIO $ hPutBuilder stdout $ drawMap (view #maps ls ! 0)
+
+newEntOnLevel :: Int -> Game Ent
+newEntOnLevel lev = do
+    ent <- createEntity newEntity
+    setEntity ent unchanged{zLevel = Set lev}
+    pure ent
+
+step :: Game ()
+step = pure ()
+
+handleInput :: [Char] -> Game ()
+handleInput key =
+    case key of
+        "q" -> modify $ set #quit True
+        _ -> pure ()
 
 main :: IO ()
 main = do
@@ -232,15 +301,24 @@ main = do
                 { pos = posVtable
                 , zLevel = zLevelVtable
                 }
+
         systemRun = runSystemT storage $ do
             y <- createEntity newEntity{pos = Just (MkPosition 0 0)}
             z <- getEntity y
-            liftIO $ print (pos z)
+
+            liftIO setupTerminal
+            whileM_ (not . view #quit <$> get) $ do
+                renderTerminal
+                key <- liftIO getKey
+                handleInput key
+            liftIO teardownTerminal
+
         initialState =
             MkLocalState
-                { lsMaps = array (0, 0) [(0, emptyMap 10 10)]
-                , lsEntityPositions = SM.empty
-                , lsZLevelEntities = SM.empty
+                { quit = False
+                , maps = array (0, 0) [(0, emptyMap 10 10)]
+                , lsEntityPositions = M.empty
+                , lsZLevelEntities = IM.empty
                 , lsCamera = MkPosition 0 0
                 , lsTime = 0
                 }

@@ -53,6 +53,7 @@ common shared
     , ecstasy
     , filepath
     , mtl
+    , monad-loops
     , optics
     , random
     , stm
