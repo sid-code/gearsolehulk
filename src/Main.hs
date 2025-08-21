@@ -4,8 +4,9 @@
 
 module Main (main) where
 
+import Control.Monad (MonadPlus (mzero), forM_)
 import Control.Monad.Loops (whileM_)
-import Control.Monad.Reader (MonadIO (liftIO), MonadReader (ask), ReaderT (runReaderT))
+import Control.Monad.Reader (MonadIO (liftIO), MonadReader (ask), ReaderT (ReaderT, runReaderT))
 import Data.Array (Array, array, listArray, (!), (//))
 import Data.ByteString.Builder (Builder, charUtf8, hPutBuilder, stringUtf8)
 import Data.Colour (Colour, ColourOps (darken))
@@ -23,21 +24,26 @@ import Data.Ecstasy (
     allEnts,
     createEntity,
     defStorage,
+    efor,
     emap,
     getEntity,
     newEntity,
     query,
+    queryDef,
+    queryEnt,
     runSystemT,
     setEntity,
+    someEnts,
     unchanged,
  )
+import Data.Ecstasy.Types (QueryT (QueryT))
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.IntMap qualified as IM
 import Data.Map qualified as M
 import Data.Set (Set, delete, insert, member)
 import Data.Text (Text)
-import Optics (Lens, lens, set, view)
-import System.Console.ANSI (ConsoleLayer (Foreground), SGR (SetRGBColor), setSGRCode)
+import Optics (Lens, lens, over, set, view)
+import System.Console.ANSI (ConsoleLayer (Foreground), SGR (Reset, SetRGBColor), setSGR, setSGRCode)
 import System.IO (BufferMode (NoBuffering), hReady, hSetBuffering, hSetEcho, stdin, stdout)
 
 getKey :: IO [Char]
@@ -60,11 +66,17 @@ type Field f a = Component f 'Field a
 data EntWorld f = Entity
     { pos :: Component f 'Virtual Position
     , zLevel :: Component f 'Virtual Int
+    , -- Description
+      name :: Field f Text
     , description :: Field f Text
     , isPlayer :: Flag f
     , isActor :: Flag f
-    , nextAction :: Field f Action
-    , isContainer :: Flag f
+    , actionPolicy :: Field f ActionPolicy
+    , speed :: Field f Int
+    , -- Action
+      nextAction :: Field f Action
+    , -- Item hierarchy
+      isContainer :: Flag f
     , isItem :: Flag f
     , itemData :: Field f Item
     , heldBy :: Field f Ent
@@ -149,10 +161,16 @@ data LocalState = MkLocalState
     , maps :: !(Array Int (Map Tile))
     , lsEntityPositions :: M.Map Ent Position
     , lsZLevelEntities :: IM.IntMap (Set Ent)
-    , lsCamera :: !Position
-    , lsTime :: !Int
+    , interfaces :: M.Map Ent Interface
+    , player :: Maybe Ent
+    , time :: !Int
     }
     deriving stock (Show, Generic)
+
+data Interface = MkInterface
+    { messages :: [Text]
+    }
+    deriving stock (Show)
 
 get ::
     (MonadIO m, MonadReader (IORef LocalState) m) =>
@@ -185,12 +203,6 @@ move :: Ent -> Position -> Game ()
 move ent p@(MkPosition{}) = do
     localState <- get
     setEntity ent unchanged{pos = Set p}
-
-tick :: Game ()
-tick = emap allEnts $ do
-    position <- query pos
-    liftIO $ print position
-    pure unchanged
 
 vgetPos :: Ent -> Underlying (Maybe Position)
 vgetPos ent = do
@@ -276,6 +288,7 @@ renderTerminal = do
     ls <- get
 
     liftIO $ hPutBuilder stdout $ drawMap (view #maps ls ! 0)
+    liftIO $ setSGR [Reset]
 
 newEntOnLevel :: Int -> Game Ent
 newEntOnLevel lev = do
@@ -283,8 +296,32 @@ newEntOnLevel lev = do
     setEntity ent unchanged{zLevel = Set lev}
     pure ent
 
+queryIf :: Bool -> Query ()
+queryIf x = if x then QueryT $ ReaderT $ const $ pure () else mzero
+
 step :: Game ()
-step = pure ()
+step = do
+    modify (over #time (+ 1))
+    maybePerformActions
+
+allActionable :: Int -> Query (Ent, ActionPolicy)
+allActionable curTime = do
+    spd <- query speed
+    queryIf $ curTime `mod` spd == 0
+    policy <- queryDef AlwaysWait actionPolicy
+    (,policy) <$> queryEnt
+
+performAction :: Ent -> ActionPolicy -> Game ()
+performAction ent AlwaysWait = liftIO $ putStrLn $ show ent ++ " waits."
+
+maybePerformActions :: Game ()
+maybePerformActions = do
+    curTime <- gets (view #time)
+    entsAndActions <- efor allEnts (allActionable curTime)
+    forM_ entsAndActions $ uncurry performAction
+
+data ActionPolicy = AlwaysWait
+    deriving stock (Show, Eq)
 
 handleInput :: [Char] -> Game ()
 handleInput key =
@@ -303,12 +340,19 @@ main = do
                 }
 
         systemRun = runSystemT storage $ do
-            y <- createEntity newEntity{pos = Just (MkPosition 0 0)}
+            y <-
+                createEntity
+                    newEntity
+                        { pos = Just (MkPosition 1 1)
+                        , isPlayer = Just ()
+                        , speed = Just 10
+                        }
             z <- getEntity y
 
             liftIO setupTerminal
             whileM_ (not . view #quit <$> get) $ do
                 renderTerminal
+                step
                 key <- liftIO getKey
                 handleInput key
             liftIO teardownTerminal
@@ -319,8 +363,9 @@ main = do
                 , maps = array (0, 0) [(0, emptyMap 10 10)]
                 , lsEntityPositions = M.empty
                 , lsZLevelEntities = IM.empty
-                , lsCamera = MkPosition 0 0
-                , lsTime = 0
+                , time = 0
+                , interfaces = M.empty
+                , player = Nothing
                 }
     stateReference <- newIORef initialState
     runReaderT systemRun stateReference
