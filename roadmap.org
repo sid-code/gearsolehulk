@@ -1,0 +1,34 @@
+* Roadmap
+
+   - [-] Game model
+     - [ ] Game design
+       - [ ] Gameplay loop/incentives
+       - [ ] 
+     - [ ] Map
+       - [ ] Map tile types
+       - [ ] Map generation
+     - [-] Game mechanics
+       - [X] Entity actions
+         - [X] Basic action infrastructure
+         - [X] Speed
+       - [ ] Noise mechanic
+         - [ ] Sleep/wake mechanic
+     - [ ] Player
+       - [ ] Control -> Action
+       - [ ] Field of view
+     - [ ] Items
+     - [ ] Furniture
+     - [ ] Mobs
+       - [ ] AI
+   - [-] Renderer
+     - [-] Terminal renderer
+       - [-] Display
+         - [X] Basic display
+         - [ ] Field of view display
+         - [ ] Inventory display
+           - 
+         - [ ] Character status display
+       - [ ] Input
+         - [ ] Keymaps
+           - [ ] Submenus
+         - [ ] Targeting interface
