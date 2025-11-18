@@ -2,13 +2,15 @@ module FieldOfView where
 
 import Data.Ecstasy
 import Data.Map qualified as M
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Set qualified as S
 import Optics
 import Types
 
-emptyFOV :: ViewField =
+emptyFOV :: ViewField
+emptyFOV =
     MkViewField{position = MkPosition (0, 0), visible = M.empty, timeStationary = 0}
+
 updateFOV :: Map Tile -> M.Map Position (S.Set Ent) -> Position -> ViewField -> ViewField
 updateFOV mp entpos p (MkViewField{position, visible, timeStationary}) =
     MkViewField
@@ -32,10 +34,11 @@ updateFOV mp entpos p (MkViewField{position, visible, timeStationary}) =
                         }
                     )
 
-    probe mp entpos p =
-        MkViewTile
-            { entities = maybe [] S.toList (M.lookup p entpos)
-            , tile = mp ^. posLens p
-            , isMemory = False
-            , lightLevel = 1
-            }
+probe :: Map Tile -> M.Map Position (S.Set Ent) -> Position -> ViewTile
+probe mp entpos p =
+    MkViewTile
+        { entities = maybe [] S.toList (M.lookup p entpos)
+        , tile = mp ^. posLens p
+        , isMemory = False
+        , lightLevel = 1
+        }
