@@ -86,8 +86,6 @@ data EntWorld f = Entity
     , actionPolicy :: Field f ActionPolicy
     , speed :: Field f Int
     -- ^ The amount of time it takes for this entity to perform an action.
-    , -- Action
-      nextAction :: Field f Action
     , messages :: Field f [Text]
     , -- Item hierarchy
       isContainer :: Flag f
