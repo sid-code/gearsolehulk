@@ -99,7 +99,7 @@ data EntityDisplay = MkEntityDisplay
     }
     deriving stock (Show, Eq)
 
-data Action = Wait | Move Direction | Use Ent
+data Action = Wait | Invalid | Move Direction | MoveTo Position | Use Ent
     deriving stock (Show, Eq)
 
 data Direction = N | NE | E | SE | S | SW | W | NW

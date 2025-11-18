@@ -2,6 +2,7 @@
 
 module Action where
 
+import Control.Exception (throw)
 import Control.Monad
 import Control.Monad.Coroutine (Coroutine (resume))
 import Control.Monad.Coroutine.SuspensionFunctors (Yield (Yield))
@@ -11,7 +12,8 @@ import Control.Monad.Trans.Maybe
 import Data.Array
 import Data.Ecstasy
 import Data.Functor
-import Data.Text qualified as T
+import Data.Maybe (fromMaybe)
+import Data.Text (pack, singleton)
 import Message
 import Optics
 import Renderer.Terminal (inputCoroutine, renderTerminal)
@@ -26,44 +28,43 @@ allActionable curTime = do
     policy <- query actionPolicy
     (,policy) <$> queryEnt
 
-getAction :: Ent -> ActionPolicy -> Game Action
-getAction _ AlwaysWait = pure Wait
-getAction _ RandomWalk = do
+getAction :: Ent -> ActionPolicy -> Game ValidAction
+getAction _ AlwaysWait = pure validWait
+getAction ent RandomWalk = do
     r <- gets (view #rng)
     let (d :: Direction, r') = random r
     modify (set #rng r')
-    pure $ Move d
-getAction _ AskIO = do
+    orWait ent (Move d)
+getAction ent AskIO = do
     -- TODO: this should use whatever interface is configured
     renderTerminal
-    nextInput <- liftIO $ resume inputCoroutine
-    case nextInput of
-        Right () -> pure Wait
-        Left (Yield ch _) ->
-            case ch of
-                'q' -> modify (set #quit True) $> Wait
-                'h' -> pure $ Move W
-                'j' -> pure $ Move S
-                'k' -> pure $ Move N
-                'l' -> pure $ Move E
-                _ -> pure Wait
+    let getNextAction = do
+            nextInput <- liftIO $ resume inputCoroutine
+            case nextInput of
+                Right () -> pure Wait
+                Left (Yield ch _) -> do
+                    case ch of
+                        'q' -> modify (set #quit True) $> Wait
+                        'h' -> pure $ Move W
+                        'j' -> pure $ Move S
+                        'k' -> pure $ Move N
+                        'l' -> pure $ Move E
+                        _ -> pure Invalid
+    let go = getNextAction >>= checkAction ent >>= maybe go pure
+    go
 
-performAction :: Ent -> Action -> Game ()
-performAction ent Wait = liftIO $ putStrLn $ show ent ++ " waits."
-performAction ent (Move dir) = do
-    void $ tryMove ent dir
-performAction ent (Use oent) = undefined
+newtype ValidAction = MkValidAction Action
 
-maybePerformActions :: Game ()
-maybePerformActions = do
-    curTime <- gets (view #time)
-    entsAndActions <- efor allEnts (allActionable curTime)
-    forM_ entsAndActions $ \(ent, policy) -> do
-        act <- getAction ent policy
-        performAction ent act
+-- wait is always valid
+validWait :: ValidAction
+validWait = MkValidAction Wait
 
-tryMove :: Ent -> Direction -> Game ()
-tryMove ent d = void . runMaybeT $ do
+orWait :: Ent -> Action -> Game ValidAction
+orWait ent act = checkAction ent act <&> fromMaybe validWait
+
+checkAction :: Ent -> Action -> Game (Maybe ValidAction)
+checkAction _ Invalid = pure Nothing
+checkAction ent (Move d) = runMaybeT $ do
     let (dx, dy) = toDelta d
     ent' <- lift $ getEntity ent
     MkPosition (x, y) <- hoistMaybe (pos ent')
@@ -72,11 +73,24 @@ tryMove ent d = void . runMaybeT $ do
     mps :: Array Int (Map Tile) <- gets (view #maps)
     let mp = mps ! zl
         existing = view (posLens newp) mp
-    if existing == Wall
-        then do lift $ sendMessage ent "You run into a wall."
-        else lift $ setEntity ent unchanged{pos = Set newp}
+    hoistMaybe $ if existing == Wall then Nothing else Just $ MkValidAction $ MoveTo newp
+checkAction _ a@(MoveTo _) = pure $ Just $ MkValidAction a -- counterintuitely, these are always valid
+checkAction _ a = pure $ Just $ MkValidAction a
+
+performAction :: Ent -> Action -> Game ()
+performAction _ Invalid = error "Invalid action"
+performAction ent Wait = liftIO $ putStrLn $ show ent ++ " waits."
+performAction ent (Move dir) = undefined
+performAction ent (MoveTo newp) = move ent newp
+performAction ent (Use oent) = undefined
+
+maybePerformActions :: Game ()
+maybePerformActions = do
+    curTime <- gets (view #time)
+    entsAndActions <- efor allEnts (allActionable curTime)
+    forM_ entsAndActions $ \(ent, policy) -> do
+        MkValidAction act <- getAction ent policy
+        performAction ent act
 
 move :: Ent -> Position -> Game ()
-move ent p = do
-    localState <- get
-    setEntity ent unchanged{pos = Set p}
+move ent p = setEntity ent unchanged{pos = Set p}
