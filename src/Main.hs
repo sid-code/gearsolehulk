@@ -10,13 +10,9 @@ import Control.Monad.Reader (MonadIO (liftIO), ReaderT (runReaderT))
 import Data.Array
 import Data.Colour.SRGB (sRGB24)
 import Data.Ecstasy (
-    Ent,
-    Update (Set),
     createEntity,
     newEntity,
     runSystemT,
-    setEntity,
-    unchanged,
  )
 import Data.IORef (newIORef)
 import Data.IntMap qualified as IM
@@ -25,7 +21,6 @@ import Debug (debugInit)
 import Maps
 import Optics (over, set, view)
 import Renderer.Terminal (
-    renderTerminal,
     setupTerminal,
     teardownTerminal,
  )
@@ -44,8 +39,8 @@ main = do
     let
         systemRun = runSystemT storage $ do
             pid <-
-                createEntity
-                    newEntity
+                Data.Ecstasy.createEntity
+                    Data.Ecstasy.newEntity
                         { pos = Just (MkPosition (1, 1))
                         , zLevel = Just 0
                         , isPlayer = Just ()
@@ -54,9 +49,9 @@ main = do
                         , display = Just MkEntityDisplay{symbol = '@', color = sRGB24 120 0 120}
                         , actionPolicy = Just AskIO
                         }
-            thingy <-
-                createEntity
-                    newEntity
+            _thingy <-
+                Data.Ecstasy.createEntity
+                    Data.Ecstasy.newEntity
                         { pos = Just (MkPosition (5, 5))
                         , zLevel = Just 0
                         , speed = Just 100
