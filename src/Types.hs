@@ -1,7 +1,6 @@
 module Types where
 
-import Control.Monad.Coroutine
-import Control.Monad.Reader (MonadIO (liftIO), MonadReader (ask), ReaderT (ReaderT))
+import Control.Monad.Reader (MonadIO (liftIO), MonadReader (ask), ReaderT)
 import Data.Array (Array, (!), (//))
 import Data.Colour (Colour)
 import Data.Colour.SRGB (sRGB24)
@@ -132,7 +131,7 @@ data Weapon = MkWeapon {}
 
 instance IsItem Weapon where
     useItem :: Ent -> Weapon -> Game ()
-    useItem ent i = do
+    useItem _ent _i = do
         pure ()
 
 data Tile = Dirt | Stone | Grass | Wall
