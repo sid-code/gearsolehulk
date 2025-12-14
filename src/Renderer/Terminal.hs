@@ -5,15 +5,14 @@ module Renderer.Terminal where
 import Control.Monad (forM, forM_, forever)
 import Control.Monad.Coroutine (Coroutine)
 import Control.Monad.Coroutine.SuspensionFunctors (Yield, yield)
+import Control.Monad.Extra (mapMaybeM)
 import Control.Monad.Reader (MonadIO (liftIO))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Maybe (MaybeT (runMaybeT), hoistMaybe)
 import Data.Array ((!))
 import Data.ByteString.Builder (Builder, charUtf8, hPutBuilder, stringUtf8)
 import Data.Colour (ColourOps (darken))
-import Data.Ecstasy (
-    getEntity,
- )
+import Data.Ecstasy
 import Data.Foldable (for_)
 import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
@@ -86,11 +85,27 @@ renderTerminal = do
             hPutBuilder stdout $ drawMap mp
             setSGR [Reset]
 
-        symsToDraw <- forM (concatMap (\(k, v) -> map (k,) (S.toList v)) (M.toList ents)) $
-            \(MkPosition (x, y), e) -> do
-                entityData <- lift $ getEntity e
-                MkEntityDisplay{symbol, color} <- hoistMaybe $ display entityData
-                pure (x, y, symbol, color)
+        symsToDraw <- lift $
+            flip mapMaybeM (M.toList ents) $
+                \(MkPosition (x, y), es) -> do
+                    let esl = S.toList es
+                        showEnt e = do
+                            entityData <- getEntity e
+                            case display entityData of
+                                Just MkEntityDisplay{symbol, color} -> pure $ Just (x, y, symbol, color)
+                                Nothing -> pure Nothing
+                        mobiles =
+                            efor (someEnts esl) $ do
+                                _ <- query isMobile
+                                queryEnt
+                    if S.member pid es
+                        then showEnt pid
+                        else do
+                            mobs <- mobiles
+                            case (mobs, esl) of
+                                ([m], _) -> showEnt m
+                                (_, [e]) -> showEnt e
+                                ([], []) -> pure Nothing
 
         liftIO $ forM_ symsToDraw $ \(x, y, symbol, color) -> do
             setCursorPosition y x
