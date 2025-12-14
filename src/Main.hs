@@ -4,10 +4,10 @@
 
 module Main (main) where
 
-import Action
+import Action (maybePerformActions)
 import Control.Monad.Loops (whileM_)
 import Control.Monad.Reader (MonadIO (liftIO), ReaderT (runReaderT))
-import Data.Array
+import Data.Array (array)
 import Data.Colour.SRGB (sRGB24)
 import Data.Ecstasy (
     createEntity,
@@ -18,13 +18,14 @@ import Data.IORef (newIORef)
 import Data.IntMap qualified as IM
 import Data.Map qualified as M
 import Debug (debugInit)
-import Maps
+import Items (Trash (MkTrash))
+import Maps (mapWithWalls)
 import Optics (over, set, view)
 import Renderer.Terminal (
     setupTerminal,
     teardownTerminal,
  )
-import Storage
+import Storage (storage)
 import System.Random (mkStdGen)
 import Types
 
