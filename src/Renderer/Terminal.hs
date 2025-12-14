@@ -2,7 +2,7 @@
 
 module Renderer.Terminal where
 
-import Control.Monad (forM, forM_, forever)
+import Control.Monad (forM_, forever)
 import Control.Monad.Coroutine (Coroutine)
 import Control.Monad.Coroutine.SuspensionFunctors (Yield, yield)
 import Control.Monad.Extra (mapMaybeM)
@@ -14,6 +14,7 @@ import Data.ByteString.Builder (Builder, charUtf8, hPutBuilder, stringUtf8)
 import Data.Colour (ColourOps (darken))
 import Data.Ecstasy
 import Data.Foldable (for_)
+import Data.Functor ((<&>))
 import Data.Map qualified as M
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as S
@@ -21,7 +22,7 @@ import Data.Text (pack)
 import Data.Text.IO qualified as T
 import Data.Time (diffUTCTime, getCurrentTime)
 import Debug (debugLn)
-import Optics (set, view, (^.))
+import Optics (view, (^.))
 import System.Console.ANSI (ConsoleLayer (Foreground), SGR (Reset, SetRGBColor), clearScreen, hideCursor, setCursorPosition, setSGR, setSGRCode, showCursor)
 import System.IO (BufferMode (NoBuffering), hFlush, hReady, hSetBuffering, hSetEcho, stdin, stdout)
 import Types
@@ -65,6 +66,19 @@ setupTerminal = do
 teardownTerminal :: IO ()
 teardownTerminal = showCursor
 
+selectEntityToDraw :: S.Set Ent -> Ent -> Game (Maybe Ent)
+selectEntityToDraw entitiesOnTile player
+    | S.member player entitiesOnTile = pure $ Just player
+    | otherwise = do
+        let entitiesList = S.toList entitiesOnTile
+        mobs <- efor (someEnts entitiesList) $ do
+            _ <- query isMobile
+            queryEnt
+        pure $ case (mobs, entitiesList) of
+            (m : _, _) -> Just m
+            (_, e : _) -> Just e
+            ([], []) -> Nothing
+
 renderTerminal :: Game ()
 renderTerminal = do
     now <- liftIO getCurrentTime
@@ -88,24 +102,10 @@ renderTerminal = do
         symsToDraw <- lift $
             flip mapMaybeM (M.toList ents) $
                 \(MkPosition (x, y), es) -> do
-                    let esl = S.toList es
-                        showEnt e = do
-                            entityData <- getEntity e
-                            case display entityData of
-                                Just MkEntityDisplay{symbol, color} -> pure $ Just (x, y, symbol, color)
-                                Nothing -> pure Nothing
-                        mobiles =
-                            efor (someEnts esl) $ do
-                                _ <- query isMobile
-                                queryEnt
-                    if S.member pid es
-                        then showEnt pid
-                        else do
-                            mobs <- mobiles
-                            case (mobs, esl) of
-                                ([m], _) -> showEnt m
-                                (_, [e]) -> showEnt e
-                                ([], []) -> pure Nothing
+                    let mkTileDesc MkEntityDisplay{symbol, color} = (x, y, symbol, color)
+                        showEnt e = getEntity e <&> fmap mkTileDesc . display
+                    entToDraw <- selectEntityToDraw es pid
+                    maybe (pure Nothing) showEnt entToDraw
 
         liftIO $ forM_ symsToDraw $ \(x, y, symbol, color) -> do
             setCursorPosition y x
