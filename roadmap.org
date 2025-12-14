@@ -3,9 +3,8 @@
    - [-] Game model
      - [ ] Game design
        - [ ] Gameplay loop/incentives
-       - [ ] 
-     - [ ] Map
-       - [ ] Map tile types
+     - [-] Map
+       - [X] Map tile types
        - [ ] Map generation
      - [-] Game mechanics
        - [X] Entity actions
@@ -17,16 +16,21 @@
        - [ ] Control -> Action
        - [ ] Field of view
      - [ ] Items
+       - [ ] Basic item actions
+         - [ ] Pick up item
+         - [ ] Drop item
      - [ ] Furniture
-     - [ ] Mobs
-       - [ ] AI
+     - [-] Mobs
+       - [-] AI
+         - [X] Simple/trivial
+         - [ ] Complex/mob-specific AIs
    - [-] Renderer
      - [-] Terminal renderer
        - [-] Display
          - [X] Basic display
          - [ ] Field of view display
          - [ ] Inventory display
-           - 
+           - [ ] Item addressing
          - [ ] Character status display
        - [ ] Input
          - [ ] Keymaps
