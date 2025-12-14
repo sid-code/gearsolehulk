@@ -42,7 +42,13 @@ inputCoroutine =
         yield x
 
 drawTile :: Tile -> LightLevel -> Builder
-drawTile t light = stringUtf8 (setSGRCode [SetRGBColor Foreground (darken light (tileColor t))]) <> charUtf8 (tileSymbol t)
+drawTile t light =
+    stringUtf8
+        ( setSGRCode
+            [ SetRGBColor Foreground (darken light (tileColor t))
+            ]
+        )
+        <> charUtf8 (tileSymbol t)
 
 drawMap :: Map Tile -> Builder
 drawMap mp = mconcat $ map buildRow [0 .. height mp - 1]
