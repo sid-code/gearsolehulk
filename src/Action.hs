@@ -79,7 +79,7 @@ checkAction _ a = pure $ Just $ MkValidAction a
 
 performAction :: Ent -> Action -> Game ()
 performAction _ Invalid = error "Invalid action"
-performAction ent Wait = liftIO $ putStrLn $ show ent ++ " waits."
+performAction ent Wait = pure ()
 performAction ent (Move dir) = undefined
 performAction ent (MoveTo newp) = move ent newp
 performAction ent (Use oent) = undefined
