@@ -39,8 +39,8 @@ main = do
     let
         systemRun = runSystemT storage $ do
             pid <-
-                Data.Ecstasy.createEntity
-                    Data.Ecstasy.newEntity
+                createEntity
+                    newEntity
                         { pos = Just (MkPosition (1, 1))
                         , zLevel = Just 0
                         , isPlayer = Just ()
@@ -50,12 +50,12 @@ main = do
                         , actionPolicy = Just AskIO
                         }
             _thingy <-
-                Data.Ecstasy.createEntity
-                    Data.Ecstasy.newEntity
+                createEntity
+                    newEntity
                         { pos = Just (MkPosition (5, 5))
                         , zLevel = Just 0
                         , speed = Just 100
-                        , actionPolicy = Just RandomWalk
+                        , actionPolicy = Just AlwaysWait
                         , display = Just MkEntityDisplay{symbol = '?', color = sRGB24 0 240 120}
                         }
 
