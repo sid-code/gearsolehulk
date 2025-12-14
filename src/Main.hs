@@ -56,8 +56,8 @@ main = do
                         { pos = Just (MkPosition (5, 5))
                         , zLevel = Just 0
                         , speed = Just 100
-                        , actionPolicy = Just AlwaysWait
-                        , display = Just MkEntityDisplay{symbol = '?', color = sRGB24 0 240 120}
+                        , display = Just MkEntityDisplay{symbol = ':', color = sRGB24 0 240 120}
+                        , itemData = Just (MkItem (MkTrash{}))
                         }
 
             modify (set #player $ Just pid)
