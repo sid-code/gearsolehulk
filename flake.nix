@@ -18,15 +18,13 @@
       packages.x86_64-linux.default = game;
       devShells.x86_64-linux.default = pkgs.mkShell {
         inputsFrom = [ game.env ];
-        packages =
-          (with pkgs.haskellPackages; [
-            cabal-install
-            haskell-language-server
-            ghcid
-            hoogle
-            fourmolu
-          ])
-          ++ (with pkgs; [ just ]);
+        packages = with pkgs.haskellPackages; [
+          cabal-install
+          haskell-language-server
+          ghcid
+          hoogle
+          fourmolu
+        ];
       };
     };
 }
