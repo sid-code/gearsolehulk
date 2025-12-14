@@ -82,6 +82,8 @@ data EntWorld f = Entity
     -- ^ How this entity is displayed.
     , isPlayer :: Flag f
     -- ^ Is this entity a player?
+    , isMobile :: Flag f
+    -- ^ Is the entity mobile?
     , actionPolicy :: Field f ActionPolicy
     , speed :: Field f Int
     -- ^ The amount of time it takes for this entity to perform an action.
