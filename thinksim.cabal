@@ -69,4 +69,4 @@ common shared
 executable game
   import:  shared
   main-is: Main.hs
-  other-modules: Types, Storage, Util, Debug, Action, Maps, Message, FieldOfView, Renderer.Terminal
+  other-modules: Types, Storage, Util, Debug, Action, Maps, Message, FieldOfView, Renderer.Terminal, Items
