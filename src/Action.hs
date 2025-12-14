@@ -2,7 +2,6 @@
 
 module Action where
 
-import Control.Exception (throw)
 import Control.Monad
 import Control.Monad.Coroutine (Coroutine (resume))
 import Control.Monad.Coroutine.SuspensionFunctors (Yield (Yield))
@@ -13,8 +12,6 @@ import Data.Array
 import Data.Ecstasy
 import Data.Functor
 import Data.Maybe (fromMaybe)
-import Data.Text (pack, singleton)
-import Message
 import Optics
 import Renderer.Terminal (inputCoroutine, renderTerminal)
 import System.Random
@@ -79,10 +76,10 @@ checkAction _ a = pure $ Just $ MkValidAction a
 
 performAction :: Ent -> Action -> Game ()
 performAction _ Invalid = error "Invalid action"
-performAction ent Wait = pure ()
-performAction ent (Move dir) = undefined
+performAction _ent Wait = pure ()
+performAction _ent (Move _dir) = undefined
 performAction ent (MoveTo newp) = move ent newp
-performAction ent (Use oent) = undefined
+performAction _ent (Use _oent) = undefined
 
 maybePerformActions :: Game ()
 maybePerformActions = do
