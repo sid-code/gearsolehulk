@@ -122,17 +122,9 @@ instance Random Direction where
     random = randomR (minBound, maxBound)
 
 class IsItem i where
-    useItem :: Ent -> i -> Game ()
+    useItem :: Ent -> Ent -> i -> Game ()
 
 data Item = forall i. (IsItem i) => MkItem i
-
-data Weapon = MkWeapon {}
-    deriving stock (Show, Eq)
-
-instance IsItem Weapon where
-    useItem :: Ent -> Weapon -> Game ()
-    useItem _ent _i = do
-        pure ()
 
 data Tile = Dirt | Stone | Grass | Wall
     deriving stock (Show, Eq)
